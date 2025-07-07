@@ -189,10 +189,18 @@ def output_selected_files(df):
     selected = df[df['Handle'].isin(st.session_state.selected_handles)]
     if not selected.empty:
         now = datetime.now().strftime("%Y%m%d_%H%M%S")
-        grouped = df[df['Handle'].isin(st.session_state.selected_handles)].groupby('Handle')
-        final_df = pd.concat([group for _, group in grouped])
+        final_df = (
+            selected
+            .drop_duplicates()
+            .sort_values("Handle")
+        )
         csv = final_df.to_csv(index=False).encode("utf-8-sig")
-        st.download_button("⬇️ Download Selected Products", data=csv, file_name=f"selected_products_{now}.csv", mime="text/csv")
+        st.download_button(
+            "⬇️ Download Selected Products",
+            data=csv,
+            file_name=f"selected_products_{now}.csv",
+            mime="text/csv"
+        )
 
 # --- MAIN APP FLOW ---
 product_files = st.file_uploader("📄 Upload Product CSVs", type="csv", accept_multiple_files=True)
