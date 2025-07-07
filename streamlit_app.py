@@ -22,7 +22,14 @@ inventory_file = st.sidebar.file_uploader("Upload Inventory CSV", type='csv')
 
 # Step 2: Load Data
 if product_files:
-    product_dfs = [pd.read_csv(file) for file in product_files]
+    product_dfs = []
+    for file in product_files:
+    try:
+        df = pd.read_csv(file, encoding='utf-8-sig')
+        product_dfs.append(df)
+    except Exception as e:
+        st.warning(f"⚠️ Could not read {file.name}: {e}")
+
     product_df = pd.concat(product_dfs, ignore_index=True)
     st.session_state.product_df = product_df
 
