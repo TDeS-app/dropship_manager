@@ -10,7 +10,7 @@ from rapidfuzz import fuzz
 
 st.set_page_config(layout="wide")
 
-st.title("🛒 Dropship Product & Inventory Manager")
+st.title("🎢 Dropship Product & Inventory Manager")
 
 # Constants
 PRODUCTS_PER_PAGE = 20
@@ -154,29 +154,26 @@ def display_product_tiles(merged_df, page_key, search_query=""):
         sku_col = 'Variant SKU' if 'Variant SKU' in group.columns else 'SKU' if 'SKU' in group.columns else None
         main_row = group[group[sku_col].notna()].iloc[0] if sku_col and not group[sku_col].notna().empty else group.iloc[0]
 
-        with st.expander(f"{group['Title'].iloc[0]} ({handle})"):
-            cols = st.columns([1, 9])
-            with cols[0]:
-                checked = st.checkbox("", value=handle_str in st.session_state.selected_handles, key=f"chk_{page_key}_{handle_str}")
-            with cols[1]:
-                image_columns = [col for col in group.columns if 'Image' in col and group[col].notna().any()]
-                image_urls = []
-                for col in image_columns:
-                    image_urls.extend(group[col].dropna().astype(str).unique().tolist())
-                valid_image_urls = [url for url in image_urls if isinstance(url, str) and is_valid_url(url)]
-                if valid_image_urls:
-                    image_cols = st.columns(min(len(valid_image_urls), 4))
-                    for i, url in enumerate(valid_image_urls[:4]):
-                        with image_cols[i % 4]:
-                            st.image(url, width=120)
-                st.dataframe(group.reset_index(drop=True))
-
+        checked = st.checkbox(f"✅ {group['Title'].iloc[0]} ({handle})", value=handle_str in st.session_state.selected_handles, key=f"chk_{page_key}_{handle_str}")
         if checked:
             st.session_state.selected_handles.add(handle_str)
         else:
             st.session_state.selected_handles.discard(handle_str)
-    save_selected_handles()
 
+        with st.expander("View Details"):
+            image_columns = [col for col in group.columns if 'Image' in col and group[col].notna().any()]
+            image_urls = []
+            for col in image_columns:
+                image_urls.extend(group[col].dropna().astype(str).unique().tolist())
+            valid_image_urls = [url for url in image_urls if isinstance(url, str) and is_valid_url(url)]
+            if valid_image_urls:
+                image_cols = st.columns(min(len(valid_image_urls), 4))
+                for i, url in enumerate(valid_image_urls[:4]):
+                    with image_cols[i % 4]:
+                        st.image(url, width=120)
+            st.dataframe(group.reset_index(drop=True))
+
+    save_selected_handles()
     display_pagination_controls(total, current_page, page_key)
 
 def output_selected_files(df):
