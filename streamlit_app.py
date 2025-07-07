@@ -115,7 +115,7 @@ def display_pagination_controls(total, current_page, key_prefix):
 
 def display_product_tiles(merged_df, page_key, search_query=""):
     max_inventory = int(merged_df[[col for col in merged_df.columns if 'Available' in col][0]].fillna(0).max()) if not merged_df.empty else 500
-    inventory_filter = st.sidebar.slider("📦 Filter by Inventory Quantity", 0, max_inventory, (0, max_inventory), key=f"{page_key}_inventory_filter")
+    inventory_filter = st.sidebar.slider("📦 Filter by Inventory Quantity", 0, max_inventory, (0, max_inventory), key=f"{page_key}_inventory_filter_slider")
 
     grouped = list(merged_df.groupby("Handle"))
 
@@ -131,7 +131,6 @@ def display_product_tiles(merged_df, page_key, search_query=""):
             or any(search_query.lower() in str(sku).lower() for sku in group.get('Variant SKU', group.get('SKU', [])))
         ]
 
-    # Inventory quantity filter
     filtered_grouped = []
     for handle, group in grouped:
         qty_col = 'Available Quantity'
@@ -158,7 +157,15 @@ def display_product_tiles(merged_df, page_key, search_query=""):
             checked = st.checkbox("", value=handle_str in st.session_state.selected_handles, key=f"chk_{page_key}_{handle_str}")
         with cols[1]:
             with st.expander(f"{group['Title'].iloc[0]} ({handle})"):
-                st.dataframe(group.reset_index(drop=True))  # Variant-level table view
+                # Show all image columns if available
+                image_columns = [col for col in group.columns if 'Image' in col and group[col].notna().any()]
+                image_urls = []
+                for col in image_columns:
+                    image_urls.extend(group[col].dropna().astype(str).unique().tolist())
+                if image_urls:
+                    st.image(image_urls, width=100)
+
+                st.dataframe(group.reset_index(drop=True))
 
         if checked:
             st.session_state.selected_handles.add(handle_str)
@@ -172,12 +179,10 @@ def output_selected_files(merged_df):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     selected_handles = st.session_state.selected_handles
 
-    # Include all full rows from original product_df (for variants & formatting)
     selected_df = st.session_state.full_product_df[
         st.session_state.full_product_df['Handle'].isin(selected_handles)
     ].copy()
 
-    # Join in the matching inventory data
     merged_subset = merged_df[merged_df['Handle'].isin(selected_handles)]
     selected_df = pd.merge(selected_df, merged_subset.drop(columns=selected_df.columns.intersection(merged_subset.columns)), on='Handle', how='left')
 
