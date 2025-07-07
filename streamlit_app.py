@@ -154,33 +154,39 @@ def display_product_tiles(merged_df, page_key, search_query=""):
         sku_col = 'Variant SKU' if 'Variant SKU' in group.columns else 'SKU' if 'SKU' in group.columns else None
         main_row = group[group[sku_col].notna()].iloc[0] if sku_col and not group[sku_col].notna().empty else group.iloc[0]
 
-        checked = st.checkbox("", value=handle_str in st.session_state.selected_handles, key=f"chk_{page_key}_{handle_str}")
-
-        # Show all image columns if available
-        image_columns = [col for col in group.columns if 'Image' in col and group[col].notna().any()]
-        image_urls = []
-        for col in image_columns:
-            image_urls.extend(group[col].dropna().astype(str).unique().tolist())
-
-        valid_image_urls = [url for url in image_urls if isinstance(url, str) and is_valid_url(url)]
-
         with st.expander(f"{group['Title'].iloc[0]} ({handle})"):
-            if valid_image_urls:
-                cols = st.columns(min(len(valid_image_urls), 4))
-                for i, url in enumerate(valid_image_urls[:4]):
-                    with cols[i % 4]:
-                        st.image(url, width=120)
-            st.dataframe(group.reset_index(drop=True))
+            cols = st.columns([1, 9])
+            with cols[0]:
+                checked = st.checkbox("", value=handle_str in st.session_state.selected_handles, key=f"chk_{page_key}_{handle_str}")
+            with cols[1]:
+                image_columns = [col for col in group.columns if 'Image' in col and group[col].notna().any()]
+                image_urls = []
+                for col in image_columns:
+                    image_urls.extend(group[col].dropna().astype(str).unique().tolist())
+                valid_image_urls = [url for url in image_urls if isinstance(url, str) and is_valid_url(url)]
+                if valid_image_urls:
+                    image_cols = st.columns(min(len(valid_image_urls), 4))
+                    for i, url in enumerate(valid_image_urls[:4]):
+                        with image_cols[i % 4]:
+                            st.image(url, width=120)
+                st.dataframe(group.reset_index(drop=True))
 
         if checked:
             st.session_state.selected_handles.add(handle_str)
         else:
             st.session_state.selected_handles.discard(handle_str)
-        save_selected_handles()
+    save_selected_handles()
 
     display_pagination_controls(total, current_page, page_key)
 
-# Remaining code (output_selected_files and main flow) stays unchanged
+def output_selected_files(df):
+    selected = df[df['Handle'].isin(st.session_state.selected_handles)]
+    if not selected.empty:
+        now = datetime.now().strftime("%Y%m%d_%H%M%S")
+        grouped = df[df['Handle'].isin(st.session_state.selected_handles)].groupby('Handle')
+        final_df = pd.concat([group for _, group in grouped])
+        csv = final_df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button("⬇️ Download Selected Products", data=csv, file_name=f"selected_products_{now}.csv", mime="text/csv")
 
 # --- MAIN APP FLOW ---
 product_file = st.file_uploader("📄 Upload Product CSV", type="csv")
@@ -200,18 +206,33 @@ if inventory_file and st.session_state.full_product_df is not None:
             merged_df = fuzzy_match_inventory(st.session_state.full_product_df, inventory_df)
             st.session_state.merged_df_cache = merged_df.copy()
             st.session_state.original_inventory_columns = inventory_df.columns.tolist()
-
             st.success("✅ Inventory updated using latest file!")
 
-            st.markdown("---")
-            st.subheader("🖼️ Browse Products (Updated)")
-            search_query = st.text_input("🔍 Search Products (After Inventory Update)")
-            display_product_tiles(merged_df, page_key="product", search_query=search_query)
+# Always allow preview of product tiles if data exists
+if st.session_state.merged_df_cache is not None:
+    st.markdown("---")
+    st.subheader("🖼️ Browse Products (Updated)")
+    search_query = st.text_input("🔍 Search Products (After Inventory Update)")
+    display_product_tiles(st.session_state.merged_df_cache, page_key="product", search_query=search_query)
 
-            st.markdown("---")
-            st.subheader("🔎 Selected Products Preview")
-            selected_preview = merged_df[merged_df['Handle'].isin(st.session_state.selected_handles)]
-            display_product_tiles(selected_preview, page_key="selected")
+    st.markdown("---")
+    st.subheader("🔎 Selected Products Preview")
+    selected_preview = st.session_state.merged_df_cache[st.session_state.merged_df_cache['Handle'].isin(st.session_state.selected_handles)]
+    display_product_tiles(selected_preview, page_key="selected")
 
-            if st.button("✅ Confirm Choices"):
-                output_selected_files(merged_df)
+    if st.button("✅ Confirm Choices"):
+        output_selected_files(st.session_state.merged_df_cache)
+
+elif st.session_state.full_product_df is not None:
+    st.markdown("---")
+    st.subheader("🖼️ Browse Products")
+    search_query = st.text_input("🔍 Search Products")
+    display_product_tiles(st.session_state.full_product_df, page_key="product", search_query=search_query)
+
+    st.markdown("---")
+    st.subheader("🔎 Selected Products Preview")
+    selected_preview = st.session_state.full_product_df[st.session_state.full_product_df['Handle'].isin(st.session_state.selected_handles)]
+    display_product_tiles(selected_preview, page_key="selected")
+
+    if st.button("✅ Confirm Choices"):
+        output_selected_files(st.session_state.full_product_df)
