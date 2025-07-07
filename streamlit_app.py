@@ -177,5 +177,9 @@ elif st.session_state.merged_df_cache is not None:
     st.markdown("---")
     st.subheader("🖼️ Browse Products (Cached)")
     display_product_tiles(st.session_state.merged_df_cache, st.session_state.current_page)
+
+    st.markdown("---")
+    if st.button("✅ Confirm Choices"):
+        output_selected_files(st.session_state.merged_df_cache)
 else:
     st.info("👆 Please upload your product and inventory files, then press 'Process Files' to begin.")
