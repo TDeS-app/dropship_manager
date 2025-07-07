@@ -87,12 +87,6 @@ def display_product_tiles(merged_df):
 
             with col2:
                 st.markdown(f"**Product Title:** {main_row['Title']}")
-                images = group['Image Src'].dropna().unique().tolist()
-                with st.expander("🖼️ See all images", expanded=False):
-                    img_cols = st.columns(4)
-                    for i, img in enumerate(images):
-                        with img_cols[i % 4]:
-                            st.image(img, use_column_width=True)
 
                 # Inventory info
                 qty_col = 'Available Quantity'
@@ -104,6 +98,12 @@ def display_product_tiles(merged_df):
                     st.markdown(f"**Available:** {int(total_qty)}")
                 else:
                     st.markdown("❓ *No inventory data found*")
+
+                # Expander for additional images
+                with st.expander("📷 More Images"):
+                    for _, row in group.iterrows():
+                        if row['Image Src'] != main_image:
+                            st.image(row['Image Src'], width=100)
 
 
 def output_selected_files(merged_df):
