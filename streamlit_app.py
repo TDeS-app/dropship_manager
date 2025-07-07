@@ -96,10 +96,10 @@ def paginate_list(grouped, page):
 def display_pagination_controls(total, current_page, key_prefix):
     total_pages = (total + PRODUCTS_PER_PAGE - 1) // PRODUCTS_PER_PAGE
     col1, col2, col3 = st.columns([1, 2, 1])
-    with col1:
-        if current_page > 1:
-            if st.button("⬅️ Prev", key=f"{key_prefix}_prev"):
-                st.session_state[f"{key_prefix}_page"] -= 1
+
+    if current_page > 1 and col1.button("⬅️ Prev", key=f"{key_prefix}_prev"):
+        st.session_state[f"{key_prefix}_page"] = current_page - 1
+
     with col2:
         new_page = st.selectbox(
             f"Page ({key_prefix})",
@@ -107,11 +107,11 @@ def display_pagination_controls(total, current_page, key_prefix):
             index=current_page - 1,
             key=f"{key_prefix}_page_selector"
         )
-        st.session_state[f"{key_prefix}_page"] = new_page
-    with col3:
-        if current_page < total_pages:
-            if st.button("➡️ Next", key=f"{key_prefix}_next"):
-                st.session_state[f"{key_prefix}_page"] += 1
+        if new_page != current_page:
+            st.session_state[f"{key_prefix}_page"] = new_page
+
+    if current_page < total_pages and col3.button("➡️ Next", key=f"{key_prefix}_next"):
+        st.session_state[f"{key_prefix}_page"] = current_page + 1
 
 def display_product_tiles(merged_df, page_key, search_query=""):
     max_inventory = int(merged_df[[col for col in merged_df.columns if 'Available' in col][0]].fillna(0).max()) if not merged_df.empty else 500
@@ -152,20 +152,18 @@ def display_product_tiles(merged_df, page_key, search_query=""):
         sku_col = 'Variant SKU' if 'Variant SKU' in group.columns else 'SKU' if 'SKU' in group.columns else None
         main_row = group[group[sku_col].notna()].iloc[0] if sku_col and not group[sku_col].notna().empty else group.iloc[0]
 
-        cols = st.columns([0.05, 0.95])
-        with cols[0]:
-            checked = st.checkbox("", value=handle_str in st.session_state.selected_handles, key=f"chk_{page_key}_{handle_str}")
-        with cols[1]:
-            with st.expander(f"{group['Title'].iloc[0]} ({handle})"):
-                # Show all image columns if available
-                image_columns = [col for col in group.columns if 'Image' in col and group[col].notna().any()]
-                image_urls = []
-                for col in image_columns:
-                    image_urls.extend(group[col].dropna().astype(str).unique().tolist())
-                if image_urls:
-                    st.image(image_urls, width=100)
+        checked = st.checkbox("", value=handle_str in st.session_state.selected_handles, key=f"chk_{page_key}_{handle_str}")
 
-                st.dataframe(group.reset_index(drop=True))
+        # Show all image columns if available
+        image_columns = [col for col in group.columns if 'Image' in col and group[col].notna().any()]
+        image_urls = []
+        for col in image_columns:
+            image_urls.extend(group[col].dropna().astype(str).unique().tolist())
+
+        with st.expander(f"{group['Title'].iloc[0]} ({handle})"):
+            if image_urls:
+                st.image(image_urls, width=150)
+            st.dataframe(group.reset_index(drop=True))
 
         if checked:
             st.session_state.selected_handles.add(handle_str)
@@ -220,10 +218,10 @@ def output_selected_files(merged_df):
 
 # --- MAIN APP FLOW ---
 
-st.subheader("📤 Upload Product CSV(s)")
+st.subheader("📄 Upload Product CSV(s)")
 product_files = st.file_uploader("Upload one or more product CSVs", accept_multiple_files=True, type=["csv"])
 
-st.subheader("📥 Upload Inventory CSV")
+st.subheader("📅 Upload Inventory CSV")
 inventory_file = st.file_uploader("Upload latest inventory CSV.'", type=["csv"])
 
 if st.button("🔄 Process Files"):
@@ -260,7 +258,7 @@ elif inventory_file and st.session_state.product_df is not None:
         if inventory_df is not None:
             merged_df = fuzzy_match_inventory(st.session_state.product_df, inventory_df)
             st.session_state.merged_df_cache = merged_df.copy()
-            st.subheader("🆕 Inventory Updated")
+            st.subheader("🔎 Inventory Updated")
             output_selected_files(merged_df)
 
 elif st.session_state.merged_df_cache is not None:
