@@ -249,5 +249,10 @@ elif st.session_state.merged_df_cache is not None:
 
     if st.button("✅ Confirm Choices"):
         output_selected_files(st.session_state.merged_df_cache)
+
+    if st.button("🗑️ Clear Selections"):
+        st.session_state.selected_handles.clear()
+        save_selected_handles()
+        st.experimental_rerun()
 else:
     st.info("👆 Please upload your product and inventory files, then press 'Process Files' to begin.")
