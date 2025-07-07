@@ -16,14 +16,10 @@ if 'product_df' not in st.session_state:
     st.session_state.product_df = None
 if 'last_output_df' not in st.session_state:
     st.session_state.last_output_df = None
-if 'current_page' not in st.session_state:
-    st.session_state.current_page = 0
 if 'merged_df_cache' not in st.session_state:
     st.session_state.merged_df_cache = None
 if 'full_product_df' not in st.session_state:
     st.session_state.full_product_df = None
-
-PRODUCTS_PER_PAGE = 20
 
 # --- FUNCTIONS ---
 
@@ -63,16 +59,22 @@ def fuzzy_match_inventory(product_df, inventory_df):
 
     return pd.DataFrame(merged_rows)
 
-def display_product_tiles(merged_df, page):
+def display_product_tiles(merged_df):
     grouped = list(merged_df.groupby("Handle"))
-    start = page * PRODUCTS_PER_PAGE
-    end = start + PRODUCTS_PER_PAGE
-    display_group = grouped[start:end]
+
+    search_query = st.text_input("🔍 Search Products (Title, Handle, or SKU):")
+    if search_query:
+        grouped = [
+            (handle, group) for handle, group in grouped
+            if search_query.lower() in str(group['Title'].iloc[0]).lower()
+            or search_query.lower() in handle.lower()
+            or any(search_query.lower() in str(sku).lower() for sku in group['Variant SKU'])
+        ]
 
     progress_bar = st.progress(0)
-    total = len(display_group)
+    total = len(grouped)
 
-    for i, (handle, group) in enumerate(display_group):
+    for i, (handle, group) in enumerate(grouped):
         with st.expander(f"{group['Title'].iloc[0]}"):
             col1, col2 = st.columns([1, 3])
             with col1:
@@ -95,18 +97,6 @@ def display_product_tiles(merged_df, page):
                 else:
                     st.markdown("❓ *No inventory data found*")
         progress_bar.progress((i + 1) / total)
-
-    # Pagination controls
-    if len(grouped) > PRODUCTS_PER_PAGE:
-        cols = st.columns(3)
-        with cols[1]:
-            st.session_state.current_page = st.number_input(
-                "Page",
-                min_value=0,
-                max_value=len(grouped) // PRODUCTS_PER_PAGE,
-                value=st.session_state.current_page,
-                step=1
-            )
 
 def output_selected_files(merged_df):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -170,7 +160,7 @@ if st.button("🔄 Process Files"):
 
             st.markdown("---")
             st.subheader("🖼️ Browse Products")
-            display_product_tiles(merged_df, st.session_state.current_page)
+            display_product_tiles(merged_df)
 
             st.markdown("---")
             st.subheader("🔎 Selected Products Preview")
@@ -181,6 +171,9 @@ if st.button("🔄 Process Files"):
                     with col1:
                         main_row = group[group['Variant SKU'].notna()].iloc[0] if not group[group['Variant SKU'].notna()].empty else group.iloc[0]
                         st.image(main_row['Image Src'], width=150)
+                        if st.button("❌ Remove", key=f"remove_{handle}"):
+                            st.session_state.selected_handles.discard(handle)
+                            st.experimental_rerun()
                     with col2:
                         qty_col = 'Available Quantity'
                         if qty_col in group.columns:
@@ -202,7 +195,7 @@ elif inventory_file and st.session_state.product_df is not None:
 elif st.session_state.merged_df_cache is not None:
     st.markdown("---")
     st.subheader("🖼️ Browse Products (Cached)")
-    display_product_tiles(st.session_state.merged_df_cache, st.session_state.current_page)
+    display_product_tiles(st.session_state.merged_df_cache)
 
     st.markdown("---")
     st.subheader("🔎 Selected Products Preview")
@@ -213,6 +206,9 @@ elif st.session_state.merged_df_cache is not None:
             with col1:
                 main_row = group[group['Variant SKU'].notna()].iloc[0] if not group[group['Variant SKU'].notna()].empty else group.iloc[0]
                 st.image(main_row['Image Src'], width=150)
+                if st.button("❌ Remove", key=f"remove_{handle}"):
+                    st.session_state.selected_handles.discard(handle)
+                    st.experimental_rerun()
             with col2:
                 qty_col = 'Available Quantity'
                 if qty_col in group.columns:
