@@ -19,7 +19,6 @@ if 'product_df' not in st.session_state:
 if 'last_output_df' not in st.session_state:
     st.session_state.last_output_df = None
 
-
 # --- FUNCTIONS ---
 
 def read_csv_with_fallback(uploaded_file):
@@ -32,11 +31,9 @@ def read_csv_with_fallback(uploaded_file):
     st.warning(f"⚠️ Could not read {uploaded_file.name} with common encodings.")
     return None
 
-
 def extract_sku_number(sku):
     match = re.search(r'\d+', str(sku))
     return match.group() if match else ''
-
 
 def fuzzy_match_inventory(product_df, inventory_df):
     product_df['sku_num'] = product_df['Variant SKU'].apply(extract_sku_number)
@@ -66,7 +63,6 @@ def fuzzy_match_inventory(product_df, inventory_df):
 
     merged_df = pd.DataFrame(merged_rows)
     return merged_df
-
 
 def display_product_tiles(merged_df):
     grouped = merged_df.groupby("Handle")
@@ -99,13 +95,6 @@ def display_product_tiles(merged_df):
                 else:
                     st.markdown("❓ *No inventory data found*")
 
-                # Expander for additional images
-                with st.expander("📷 More Images"):
-                    for _, row in group.iterrows():
-                        if row['Image Src'] != main_image:
-                            st.image(row['Image Src'], width=100)
-
-
 def output_selected_files(merged_df):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     selected_df = merged_df[merged_df['Handle'].isin(st.session_state.selected_handles)]
@@ -136,7 +125,6 @@ def output_selected_files(merged_df):
         file_name=f"inventory_selected_{timestamp}.csv",
         mime="text/csv"
     )
-
 
 # --- MAIN APP FLOW ---
 
