@@ -45,7 +45,10 @@ def extract_sku_number(sku):
 
 def preprocess_sku(df):
     df = df.copy()
-    df['sku_num'] = df['Variant SKU'].apply(extract_sku_number)
+    sku_col = 'Variant SKU' if 'Variant SKU' in df.columns else 'SKU' if 'SKU' in df.columns else None
+    if not sku_col:
+        return pd.DataFrame()
+    df['sku_num'] = df[sku_col].apply(extract_sku_number)
     return df[df['sku_num'].notna() & (df['sku_num'] != '')]
 
 def fuzzy_match_inventory(product_df, inventory_df):
@@ -98,7 +101,7 @@ def display_product_tiles(merged_df, page_key, search_query=""):
             (handle, group) for handle, group in grouped
             if search_query.lower() in str(group['Title'].iloc[0]).lower()
             or search_query.lower() in handle.lower()
-            or any(search_query.lower() in str(sku).lower() for sku in group['Variant SKU'])
+            or any(search_query.lower() in str(sku).lower() for sku in group.get('Variant SKU', group.get('SKU', [])))
         ]
 
     total = len(grouped)
@@ -109,7 +112,8 @@ def display_product_tiles(merged_df, page_key, search_query=""):
         with st.expander(f"{group['Title'].iloc[0]}"):
             col1, col2 = st.columns([1, 3])
             with col1:
-                main_row = group[group['Variant SKU'].notna()].iloc[0] if not group[group['Variant SKU'].notna()].empty else group.iloc[0]
+                sku_col = 'Variant SKU' if 'Variant SKU' in group.columns else 'SKU' if 'SKU' in group.columns else None
+                main_row = group[group[sku_col].notna()].iloc[0] if sku_col and not group[sku_col].notna().empty else group.iloc[0]
                 st.image(main_row['Image Src'], width=150, caption="Main Image")
                 checked = st.checkbox("Select", value=handle in st.session_state.selected_handles, key=handle)
                 if checked:
@@ -141,8 +145,13 @@ def output_selected_files(merged_df):
         ]
         selected_df = pd.concat([selected_df, extra_rows]).drop_duplicates()
 
-    product_columns = [col for col in selected_df.columns if col in st.session_state.original_product_columns]
-    inventory_columns = [col for col in selected_df.columns if col in st.session_state.original_inventory_columns]
+    product_columns = [col for col in selected_df.columns if 'original_product_columns' in st.session_state and col in st.session_state.original_product_columns]
+    inventory_columns = [col for col in selected_df.columns if 'original_inventory_columns' in st.session_state and col in st.session_state.original_inventory_columns]
+
+    if not product_columns:
+        product_columns = [col for col in selected_df.columns if 'SKU' in col or 'Title' in col or 'Handle' in col or 'Image Src' in col]
+    if not inventory_columns:
+        inventory_columns = [col for col in selected_df.columns if 'Available' in col or 'SKU' in col]
 
     product_output = selected_df[product_columns]
     inventory_output = selected_df[inventory_columns]
@@ -171,7 +180,7 @@ st.subheader("📤 Upload Product CSV(s)")
 product_files = st.file_uploader("Upload one or more product CSVs", accept_multiple_files=True, type=["csv"])
 
 st.subheader("📥 Upload Inventory CSV")
-inventory_file = st.file_uploader("Upload latest inventory CSV", type=["csv"])
+inventory_file = st.file_uploader("Upload latest inventory CSV. Change 'Variant SKU' to SKU'", type=["csv"])
 
 if st.button("🔄 Process Files"):
     if product_files and inventory_file:
