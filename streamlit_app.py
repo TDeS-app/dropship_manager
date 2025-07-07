@@ -195,15 +195,20 @@ def output_selected_files(df):
         st.download_button("⬇️ Download Selected Products", data=csv, file_name=f"selected_products_{now}.csv", mime="text/csv")
 
 # --- MAIN APP FLOW ---
-product_file = st.file_uploader("📄 Upload Product CSV", type="csv")
+product_files = st.file_uploader("📄 Upload Product CSVs", type="csv", accept_multiple_files=True)
 inventory_file = st.file_uploader("📦 Upload Inventory CSV", type="csv")
 
-if product_file:
-    product_df = read_csv_with_fallback(product_file)
-    if product_df is not None:
-        st.session_state.full_product_df = product_df.copy()
-        st.session_state.product_df = product_df.copy()
-        st.success("✅ Product file loaded.")
+if product_files:
+    dfs = []
+    for uploaded_file in product_files:
+        df = read_csv_with_fallback(uploaded_file)
+        if df is not None:
+            dfs.append(df)
+    if dfs:
+        combined_df = pd.concat(dfs, ignore_index=True)
+        st.session_state.full_product_df = combined_df.copy()
+        st.session_state.product_df = combined_df.copy()
+        st.success("✅ Product files loaded and combined.")
 
 if inventory_file and st.session_state.full_product_df is not None:
     if st.button("📦 Update Inventory Only"):
