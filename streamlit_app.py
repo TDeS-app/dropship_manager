@@ -189,16 +189,33 @@ def output_selected_files(df):
     selected = df[df['Handle'].isin(st.session_state.selected_handles)]
     if not selected.empty:
         now = datetime.now().strftime("%Y%m%d_%H%M%S")
-        final_df = (
-            selected
-            .drop_duplicates()
-            .sort_values("Handle")
-        )
-        csv = final_df.to_csv(index=False).encode("utf-8-sig")
+
+        inventory_df = st.session_state.original_inventory_df.copy() if 'original_inventory_df' in st.session_state else pd.DataFrame()
+        if not inventory_df.empty:
+            selected_skus = selected['Variant SKU'] if 'Variant SKU' in selected.columns else selected['SKU']
+            selected_sku_nums = selected_skus.dropna().apply(extract_sku_number).unique()
+            inventory_df = preprocess_sku(inventory_df)
+            matching_inventory = inventory_df[inventory_df['sku_num'].isin(selected_sku_nums)]
+        else:
+            matching_inventory = pd.DataFrame()
+
+        all_selected_handles = selected['Handle'].unique()
+        full_df = st.session_state.full_product_df
+        product_output = full_df[full_df['Handle'].isin(all_selected_handles)].drop_duplicates().sort_values("Handle")
+
+        product_csv = product_output.to_csv(index=False).encode("utf-8-sig")
+        inventory_csv = matching_inventory.to_csv(index=False).encode("utf-8-sig")
+
         st.download_button(
-            "⬇️ Download Selected Products",
-            data=csv,
+            "⬇️ Download Product File",
+            data=product_csv,
             file_name=f"selected_products_{now}.csv",
+            mime="text/csv"
+        )
+        st.download_button(
+            "⬇️ Download Inventory File",
+            data=inventory_csv,
+            file_name=f"selected_inventory_{now}.csv",
             mime="text/csv"
         )
 
@@ -219,15 +236,14 @@ if product_files:
         st.success("✅ Product files loaded and combined.")
 
 if inventory_file and st.session_state.full_product_df is not None:
-    if st.button("📦 Update Inventory Only"):
-        inventory_df = read_csv_with_fallback(inventory_file)
-        if inventory_df is not None:
-            merged_df = fuzzy_match_inventory(st.session_state.full_product_df, inventory_df)
-            st.session_state.merged_df_cache = merged_df.copy()
-            st.session_state.original_inventory_columns = inventory_df.columns.tolist()
-            st.success("✅ Inventory updated using latest file!")
+    inventory_df = read_csv_with_fallback(inventory_file)
+    if inventory_df is not None:
+        merged_df = fuzzy_match_inventory(st.session_state.full_product_df, inventory_df)
+        st.session_state.merged_df_cache = merged_df.copy()
+        st.session_state.original_inventory_columns = inventory_df.columns.tolist()
+        st.session_state.original_inventory_df = inventory_df.copy()
+        st.success("✅ Inventory updated automatically on file upload!")
 
-# Always allow preview of product tiles if data exists
 if st.session_state.merged_df_cache is not None:
     st.markdown("---")
     st.subheader("🖼️ Browse Products (Updated)")
@@ -242,6 +258,9 @@ if st.session_state.merged_df_cache is not None:
         display_product_tiles(selected_preview, page_key="selected")
         if st.button("✅ Confirm Choices"):
             output_selected_files(st.session_state.merged_df_cache)
+        if st.button("❌ Clear Selection"):
+            st.session_state.selected_handles.clear()
+            save_selected_handles()
     else:
         st.info("ℹ️ No products selected yet.")
 
@@ -259,5 +278,9 @@ elif st.session_state.full_product_df is not None:
         display_product_tiles(selected_preview, page_key="selected")
         if st.button("✅ Confirm Choices"):
             output_selected_files(st.session_state.full_product_df)
+        if st.button("❌ Clear Selection"):
+            st.session_state.selected_handles.clear()
+            save_selected_handles()
     else:
         st.info("ℹ️ No products selected yet.")
+
