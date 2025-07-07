@@ -9,7 +9,7 @@ st.set_page_config(layout="wide")
 
 st.title("🛒 Dropship Product & Inventory Manager")
 
-# Session state for selections and pagination
+# Session state for selections, pagination, and filtered search
 if 'selected_handles' not in st.session_state:
     st.session_state.selected_handles = set()
 if 'product_df' not in st.session_state:
@@ -20,6 +20,12 @@ if 'merged_df_cache' not in st.session_state:
     st.session_state.merged_df_cache = None
 if 'full_product_df' not in st.session_state:
     st.session_state.full_product_df = None
+if 'product_page' not in st.session_state:
+    st.session_state.product_page = 1
+if 'selected_page' not in st.session_state:
+    st.session_state.selected_page = 1
+
+PRODUCTS_PER_PAGE = 20
 
 # --- FUNCTIONS ---
 
@@ -39,18 +45,8 @@ def extract_sku_number(sku):
 
 def preprocess_sku(df):
     df = df.copy()
-    df['final_sku'] = df.get('Variant SKU', pd.NA)
-    if 'SKU' in df.columns:
-        df['final_sku'] = df['final_sku'].fillna(df['SKU'])
-        df['final_sku'] = df['final_sku'].replace('', pd.NA)
-        df['final_sku'] = df['final_sku'].fillna(df['SKU'])
-
-    if 'final_sku' in df.columns:
-        df['sku_num'] = df['final_sku'].apply(extract_sku_number)
-        return df[df['sku_num'].notna() & (df['sku_num'] != '')]
-    else:
-        df['sku_num'] = ''
-        return df
+    df['sku_num'] = df['Variant SKU'].apply(extract_sku_number)
+    return df[df['sku_num'].notna() & (df['sku_num'] != '')]
 
 def fuzzy_match_inventory(product_df, inventory_df):
     product_df = preprocess_sku(product_df)
@@ -69,10 +65,34 @@ def fuzzy_match_inventory(product_df, inventory_df):
 
     return pd.DataFrame(merged_rows)
 
-def display_product_tiles(merged_df):
+def paginate_list(grouped, page):
+    start = (page - 1) * PRODUCTS_PER_PAGE
+    end = start + PRODUCTS_PER_PAGE
+    return grouped[start:end]
+
+def display_pagination_controls(total, current_page, key_prefix):
+    total_pages = (total + PRODUCTS_PER_PAGE - 1) // PRODUCTS_PER_PAGE
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col1:
+        if current_page > 1:
+            if st.button("⬅️ Prev", key=f"{key_prefix}_prev"):
+                st.session_state[f"{key_prefix}_page"] -= 1
+    with col2:
+        st.selectbox(
+            f"Page ({key_prefix})",
+            options=list(range(1, total_pages + 1)),
+            index=current_page - 1,
+            key=f"{key_prefix}_page_selector",
+            on_change=lambda: st.session_state.update({f"{key_prefix}_page": st.session_state[f"{key_prefix}_page_selector"]})
+        )
+    with col3:
+        if current_page < total_pages:
+            if st.button("➡️ Next", key=f"{key_prefix}_next"):
+                st.session_state[f"{key_prefix}_page"] += 1
+
+def display_product_tiles(merged_df, page_key, search_query=""):
     grouped = list(merged_df.groupby("Handle"))
 
-    search_query = st.text_input("🔍 Search Products (Title, Handle, or SKU):")
     if search_query:
         grouped = [
             (handle, group) for handle, group in grouped
@@ -81,16 +101,16 @@ def display_product_tiles(merged_df):
             or any(search_query.lower() in str(sku).lower() for sku in group['Variant SKU'])
         ]
 
-    progress_bar = st.progress(0)
     total = len(grouped)
+    current_page = st.session_state[f"{page_key}_page"]
+    paginated_grouped = paginate_list(grouped, current_page)
 
-    for i, (handle, group) in enumerate(grouped):
+    for handle, group in paginated_grouped:
         with st.expander(f"{group['Title'].iloc[0]}"):
             col1, col2 = st.columns([1, 3])
             with col1:
                 main_row = group[group['Variant SKU'].notna()].iloc[0] if not group[group['Variant SKU'].notna()].empty else group.iloc[0]
-                main_image = main_row['Image Src']
-                st.image(main_image, width=150, caption="Main Image")
+                st.image(main_row['Image Src'], width=150, caption="Main Image")
                 checked = st.checkbox("Select", value=handle in st.session_state.selected_handles, key=handle)
                 if checked:
                     st.session_state.selected_handles.add(handle)
@@ -106,20 +126,20 @@ def display_product_tiles(merged_df):
                     st.markdown(f"**Available:** {int(total_qty)}")
                 else:
                     st.markdown("❓ *No inventory data found*")
-        progress_bar.progress((i + 1) / total)
+
+    display_pagination_controls(total, current_page, page_key)
 
 def output_selected_files(merged_df):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     selected_handles = st.session_state.selected_handles
     selected_df = merged_df[merged_df['Handle'].isin(selected_handles)]
 
+    # Add extra rows from the full original product data
     if st.session_state.full_product_df is not None:
         extra_rows = st.session_state.full_product_df[
             st.session_state.full_product_df['Handle'].isin(selected_handles)
         ]
-        if not extra_rows.empty:
-            full_selected_df = fuzzy_match_inventory(extra_rows, pd.DataFrame())
-            selected_df = pd.concat([selected_df, full_selected_df]).drop_duplicates()
+        selected_df = pd.concat([selected_df, extra_rows]).drop_duplicates()
 
     product_columns = [col for col in selected_df.columns if col in st.session_state.original_product_columns]
     inventory_columns = [col for col in selected_df.columns if col in st.session_state.original_inventory_columns]
@@ -170,25 +190,13 @@ if st.button("🔄 Process Files"):
 
             st.markdown("---")
             st.subheader("🖼️ Browse Products")
-            display_product_tiles(merged_df)
+            search_query = st.text_input("🔍 Search Products")
+            display_product_tiles(merged_df, page_key="product", search_query=search_query)
 
             st.markdown("---")
             st.subheader("🔎 Selected Products Preview")
             selected_preview = merged_df[merged_df['Handle'].isin(st.session_state.selected_handles)]
-            for handle, group in selected_preview.groupby("Handle"):
-                with st.expander(group['Title'].iloc[0]):
-                    col1, col2 = st.columns([1, 3])
-                    with col1:
-                        main_row = group[group['Variant SKU'].notna()].iloc[0] if not group[group['Variant SKU'].notna()].empty else group.iloc[0]
-                        st.image(main_row['Image Src'], width=150)
-                        if st.button("❌ Remove", key=f"remove_{handle}"):
-                            st.session_state.selected_handles.discard(handle)
-                            st.experimental_rerun()
-                    with col2:
-                        qty_col = 'Available Quantity'
-                        if qty_col in group.columns:
-                            total_qty = group[qty_col].fillna(0).sum()
-                            st.markdown(f"**Available:** {int(total_qty)}")
+            display_product_tiles(selected_preview, page_key="selected")
 
             if st.button("✅ Confirm Choices"):
                 output_selected_files(merged_df)
@@ -205,25 +213,13 @@ elif inventory_file and st.session_state.product_df is not None:
 elif st.session_state.merged_df_cache is not None:
     st.markdown("---")
     st.subheader("🖼️ Browse Products (Cached)")
-    display_product_tiles(st.session_state.merged_df_cache)
+    search_query = st.text_input("🔍 Search Products")
+    display_product_tiles(st.session_state.merged_df_cache, page_key="product", search_query=search_query)
 
     st.markdown("---")
     st.subheader("🔎 Selected Products Preview")
     selected_preview = st.session_state.merged_df_cache[st.session_state.merged_df_cache['Handle'].isin(st.session_state.selected_handles)]
-    for handle, group in selected_preview.groupby("Handle"):
-        with st.expander(group['Title'].iloc[0]):
-            col1, col2 = st.columns([1, 3])
-            with col1:
-                main_row = group[group['Variant SKU'].notna()].iloc[0] if not group[group['Variant SKU'].notna()].empty else group.iloc[0]
-                st.image(main_row['Image Src'], width=150)
-                if st.button("❌ Remove", key=f"remove_{handle}"):
-                    st.session_state.selected_handles.discard(handle)
-                    st.experimental_rerun()
-            with col2:
-                qty_col = 'Available Quantity'
-                if qty_col in group.columns:
-                    total_qty = group[qty_col].fillna(0).sum()
-                    st.markdown(f"**Available:** {int(total_qty)}")
+    display_product_tiles(selected_preview, page_key="selected")
 
     if st.button("✅ Confirm Choices"):
         output_selected_files(st.session_state.merged_df_cache)
