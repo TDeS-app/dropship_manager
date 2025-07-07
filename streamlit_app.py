@@ -35,6 +35,13 @@ if 'product_page' not in st.session_state:
 if 'selected_page' not in st.session_state:
     st.session_state.selected_page = 1
 
+# --- Placeholder for future authentication logic ---
+# TODO: Integrate Streamlit Authenticator or external user auth
+
+# --- Placeholder for Google Sheets / DB Sync ---
+# TODO: Add Google Sheets / database integration to fetch and push product/inventory data
+
+# --- Helper Functions ---
 def save_selected_handles():
     with open(SELECTION_FILE, "w") as f:
         json.dump(list(st.session_state.selected_handles), f)
@@ -105,8 +112,10 @@ def display_pagination_controls(total, current_page, key_prefix):
                 st.session_state[f"{key_prefix}_page"] += 1
 
 def display_product_tiles(merged_df, page_key, search_query=""):
-    grouped = list(merged_df.groupby("Handle"))
+    inventory_filter = st.sidebar.slider("📦 Filter by Inventory Quantity", 0, 500, (0, 500))
 
+    grouped = list(merged_df.groupby("Handle"))
+    
     if search_query:
         grouped = [
             (handle, group) for handle, group in grouped
@@ -114,6 +123,19 @@ def display_product_tiles(merged_df, page_key, search_query=""):
             or search_query.lower() in handle.lower()
             or any(search_query.lower() in str(sku).lower() for sku in group.get('Variant SKU', group.get('SKU', [])))
         ]
+
+    # Inventory quantity filter
+    filtered_grouped = []
+    for handle, group in grouped:
+        qty_col = 'Available Quantity'
+        if qty_col not in group.columns:
+            alt_qty = [c for c in group.columns if 'Available' in c]
+            qty_col = alt_qty[0] if alt_qty else None
+        if qty_col:
+            total_qty = group[qty_col].fillna(0).sum()
+            if inventory_filter[0] <= total_qty <= inventory_filter[1]:
+                filtered_grouped.append((handle, group))
+    grouped = filtered_grouped
 
     total = len(grouped)
     current_page = st.session_state[f"{page_key}_page"]
@@ -128,20 +150,8 @@ def display_product_tiles(merged_df, page_key, search_query=""):
         with cols[0]:
             checked = st.checkbox("", value=handle_str in st.session_state.selected_handles, key=f"chk_{page_key}_{handle_str}")
         with cols[1]:
-            with st.expander(f"{group['Title'].iloc[0]}"):
-                col1, col2 = st.columns([1, 3])
-                with col1:
-                    st.image(main_row['Image Src'], width=150, caption="Main Image")
-                with col2:
-                    qty_col = 'Available Quantity'
-                    if qty_col not in group.columns:
-                        alt_qty = [c for c in group.columns if 'Available' in c]
-                        qty_col = alt_qty[0] if alt_qty else None
-                    if qty_col:
-                        total_qty = group[qty_col].fillna(0).sum()
-                        st.markdown(f"**Available:** {int(total_qty)}")
-                    else:
-                        st.markdown("❓ *No inventory data found*")
+            with st.expander(f"{group['Title'].iloc[0]} ({handle})"):
+                st.dataframe(group.reset_index(drop=True))  # Variant-level table view
 
         if checked:
             st.session_state.selected_handles.add(handle_str)
