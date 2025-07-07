@@ -160,7 +160,10 @@ def output_selected_files(merged_df):
         extra_rows = st.session_state.full_product_df[
             st.session_state.full_product_df['Handle'].isin(selected_handles)
         ]
-        selected_df = pd.concat([selected_df, extra_rows]).drop_duplicates()
+        selected_df = pd.concat([selected_df, extra_rows])
+
+    selected_df = selected_df.drop_duplicates()
+    selected_df = selected_df.sort_values(by=selected_df.columns[0])
 
     product_columns = [col for col in selected_df.columns if 'original_product_columns' in st.session_state and col in st.session_state.original_product_columns]
     inventory_columns = [col for col in selected_df.columns if 'original_inventory_columns' in st.session_state and col in st.session_state.original_inventory_columns]
@@ -197,7 +200,7 @@ st.subheader("📤 Upload Product CSV(s)")
 product_files = st.file_uploader("Upload one or more product CSVs", accept_multiple_files=True, type=["csv"])
 
 st.subheader("📥 Upload Inventory CSV")
-inventory_file = st.file_uploader("Upload latest inventory CSV. Change 'Variant SKU' to SKU'", type=["csv"])
+inventory_file = st.file_uploader("Upload latest inventory CSV.'", type=["csv"])
 
 if st.button("🔄 Process Files"):
     if product_files and inventory_file:
