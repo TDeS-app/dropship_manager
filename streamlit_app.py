@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import re
+import os
+import json
 from io import BytesIO
 from datetime import datetime
 from rapidfuzz import fuzz
@@ -9,9 +11,17 @@ st.set_page_config(layout="wide")
 
 st.title("🛒 Dropship Product & Inventory Manager")
 
-# Session state for selections, pagination, and filtered search
+# Constants
+PRODUCTS_PER_PAGE = 20
+SELECTION_FILE = "selected_handles.json"
+
+# Session state
 if 'selected_handles' not in st.session_state:
-    st.session_state.selected_handles = set()
+    if os.path.exists(SELECTION_FILE):
+        with open(SELECTION_FILE, "r") as f:
+            st.session_state.selected_handles = set(json.load(f))
+    else:
+        st.session_state.selected_handles = set()
 if 'product_df' not in st.session_state:
     st.session_state.product_df = None
 if 'last_output_df' not in st.session_state:
@@ -25,9 +35,9 @@ if 'product_page' not in st.session_state:
 if 'selected_page' not in st.session_state:
     st.session_state.selected_page = 1
 
-PRODUCTS_PER_PAGE = 20
-
-# --- FUNCTIONS ---
+def save_selected_handles():
+    with open(SELECTION_FILE, "w") as f:
+        json.dump(list(st.session_state.selected_handles), f)
 
 def read_csv_with_fallback(uploaded_file):
     content = uploaded_file.read()
@@ -110,28 +120,34 @@ def display_product_tiles(merged_df, page_key, search_query=""):
     paginated_grouped = paginate_list(grouped, current_page)
 
     for handle, group in paginated_grouped:
-        handle_str = str(handle)  # Ensure hashable type
-        with st.expander(f"{group['Title'].iloc[0]}"):
-            col1, col2 = st.columns([1, 3])
-            with col1:
-                sku_col = 'Variant SKU' if 'Variant SKU' in group.columns else 'SKU' if 'SKU' in group.columns else None
-                main_row = group[group[sku_col].notna()].iloc[0] if sku_col and not group[sku_col].notna().empty else group.iloc[0]
-                st.image(main_row['Image Src'], width=150, caption="Main Image")
-                checked = st.checkbox("Select", value=handle_str in st.session_state.selected_handles, key=handle_str)
-                if checked:
-                    st.session_state.selected_handles.add(handle_str)
-                else:
-                    st.session_state.selected_handles.discard(handle_str)
-            with col2:
-                qty_col = 'Available Quantity'
-                if qty_col not in group.columns:
-                    alt_qty = [c for c in group.columns if 'Available' in c]
-                    qty_col = alt_qty[0] if alt_qty else None
-                if qty_col:
-                    total_qty = group[qty_col].fillna(0).sum()
-                    st.markdown(f"**Available:** {int(total_qty)}")
-                else:
-                    st.markdown("❓ *No inventory data found*")
+        handle_str = str(handle)
+        sku_col = 'Variant SKU' if 'Variant SKU' in group.columns else 'SKU' if 'SKU' in group.columns else None
+        main_row = group[group[sku_col].notna()].iloc[0] if sku_col and not group[sku_col].notna().empty else group.iloc[0]
+
+        cols = st.columns([0.05, 0.95])
+        with cols[0]:
+            checked = st.checkbox("", value=handle_str in st.session_state.selected_handles, key=f"chk_{page_key}_{handle_str}")
+        with cols[1]:
+            with st.expander(f"{group['Title'].iloc[0]}"):
+                col1, col2 = st.columns([1, 3])
+                with col1:
+                    st.image(main_row['Image Src'], width=150, caption="Main Image")
+                with col2:
+                    qty_col = 'Available Quantity'
+                    if qty_col not in group.columns:
+                        alt_qty = [c for c in group.columns if 'Available' in c]
+                        qty_col = alt_qty[0] if alt_qty else None
+                    if qty_col:
+                        total_qty = group[qty_col].fillna(0).sum()
+                        st.markdown(f"**Available:** {int(total_qty)}")
+                    else:
+                        st.markdown("❓ *No inventory data found*")
+
+        if checked:
+            st.session_state.selected_handles.add(handle_str)
+        else:
+            st.session_state.selected_handles.discard(handle_str)
+        save_selected_handles()
 
     display_pagination_controls(total, current_page, page_key)
 
@@ -140,7 +156,6 @@ def output_selected_files(merged_df):
     selected_handles = st.session_state.selected_handles
     selected_df = merged_df[merged_df['Handle'].isin(selected_handles)]
 
-    # Add extra rows from the full original product data
     if st.session_state.full_product_df is not None:
         extra_rows = st.session_state.full_product_df[
             st.session_state.full_product_df['Handle'].isin(selected_handles)
