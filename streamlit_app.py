@@ -1,97 +1,112 @@
-# streamlit_app.py
 import streamlit as st
 import pandas as pd
-import os
+from io import StringIO
 from datetime import datetime
-from io import BytesIO
 
-st.set_page_config(layout="wide")
-st.title("Dropshipping Product & Inventory Manager")
+st.set_page_config(page_title="Dropship Manager", layout="wide")
+st.title("🛒 Dropship Product & Inventory Manager")
 
-# Initialize session state
-if 'selected_handles' not in st.session_state:
-    st.session_state.selected_handles = set()
-if 'product_df' not in st.session_state:
-    st.session_state.product_df = pd.DataFrame()
-if 'inventory_df' not in st.session_state:
-    st.session_state.inventory_df = pd.DataFrame()
+# --- File Upload ---
+st.sidebar.header("📁 Upload Files")
 
-st.sidebar.header("Step 1: Upload Files")
-product_files = st.sidebar.file_uploader("Upload Product CSVs", type='csv', accept_multiple_files=True)
-inventory_file = st.sidebar.file_uploader("Upload Inventory CSV", type='csv')
+product_files = st.sidebar.file_uploader(
+    "Upload Product CSV(s)", type="csv", accept_multiple_files=True
+)
+inventory_file = st.sidebar.file_uploader(
+    "Upload Inventory CSV", type="csv", accept_multiple_files=False
+)
 
-# Step 2: Load Data
-if product_files:
-    product_dfs = []
-    for file in product_files:
-        try:
-            df = pd.read_csv(file, encoding='utf-8-sig')
-            product_dfs.append(df)
-        except Exception as e:
-            st.warning(f"⚠️ Could not read {file.name}: {e}")
+if not product_files:
+    st.warning("Please upload at least one Product CSV to continue.")
+    st.stop()
 
-    product_df = pd.concat(product_dfs, ignore_index=True)
-    st.session_state.product_df = product_df
+if not inventory_file:
+    st.warning("Please upload the Inventory CSV to continue.")
+    st.stop()
 
-if inventory_file:
-    inventory_df = pd.read_csv(inventory_file)
-    st.session_state.inventory_df = inventory_df
+# --- Read product files safely ---
+product_dfs = []
+for file in product_files:
+    try:
+        df = pd.read_csv(file, encoding='utf-8-sig')
+        product_dfs.append(df)
+    except Exception as e:
+        st.warning(f"⚠️ Could not read {file.name}: {e}")
 
-product_df = st.session_state.product_df
-inventory_df = st.session_state.inventory_df
+if not product_dfs:
+    st.error("❌ No valid product files could be read.")
+    st.stop()
 
-# Step 3: Match Inventory
-if not product_df.empty and not inventory_df.empty:
-    merged_df = product_df.merge(inventory_df, on='Variant SKU', how='left')
-    grouped = merged_df.groupby('Handle')
+product_df = pd.concat(product_dfs, ignore_index=True)
 
-    st.header("Step 2: Select Products")
-    for handle, group in grouped:
-        cols = st.columns([1, 3])
+# --- Read inventory file safely ---
+try:
+    inventory_df = pd.read_csv(inventory_file, encoding='utf-8-sig')
+except Exception as e:
+    st.error(f"❌ Could not read inventory file: {e}")
+    st.stop()
 
-        # Main image from first row
-        main_image = group.iloc[0]['Image Src']
-        title = group.iloc[0]['Title']
+# --- Clean column names ---
+product_df.columns = product_df.columns.str.strip()
+inventory_df.columns = inventory_df.columns.str.strip()
 
+# --- Check required column exists ---
+if 'Variant SKU' not in product_df.columns:
+    st.error("❌ 'Variant SKU' column not found in Product file.")
+    st.stop()
+
+if 'Variant SKU' not in inventory_df.columns:
+    st.error("❌ 'Variant SKU' column not found in Inventory file.")
+    st.stop()
+
+# --- Merge inventory into product data ---
+merged_df = product_df.merge(inventory_df, on='Variant SKU', how='left')
+
+# --- Group by product handle ---
+grouped = merged_df.groupby('Handle')
+
+selected_handles = set()
+
+st.subheader("🧾 Product Browser")
+
+for handle, group in grouped:
+    main_row = group[group['Variant SKU'] == handle]
+    if main_row.empty:
+        main_row = group.iloc[[0]]
+
+    product_title = main_row['Title'].values[0]
+    image_url = main_row['Image Src'].values[0] if 'Image Src' in main_row else ""
+
+    with st.expander(f"📦 {product_title}"):
+        cols = st.columns([1, 2])
         with cols[0]:
-            st.image(main_image, width=150)
-
-        with cols[1]:
-            st.markdown(f"### {title}")
-            st.markdown(f"**Handle**: {handle}")
-            st.markdown(f"**Inventory**:")
-            inv_details = group[['Variant SKU', 'Variant Inventory Qty']].dropna()
-            for _, row in inv_details.iterrows():
-                st.markdown(f"- SKU: {row['Variant SKU']} — Stock: {int(row['Variant Inventory Qty'])}")
-
-            checked = handle in st.session_state.selected_handles
-            if st.checkbox("Select this product", key=handle, value=checked):
-                st.session_state.selected_handles.add(handle)
+            if image_url:
+                st.image(image_url, width=150)
             else:
-                st.session_state.selected_handles.discard(handle)
+                st.text("No image available")
+        with cols[1]:
+            st.write(group[['Variant SKU', 'Option1 Value', 'Available Quantity']])
 
-    st.header("Step 3: Export Selected Files")
-    if st.button("Confirm Choices"):
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        selected_products = product_df[product_df['Handle'].isin(st.session_state.selected_handles)]
-        selected_inventory = inventory_df[inventory_df['Variant SKU'].isin(selected_products['Variant SKU'])]
+        selected = st.checkbox("Select this product", key=handle)
+        if selected:
+            selected_handles.add(handle)
 
-        prod_buffer = BytesIO()
-        inv_buffer = BytesIO()
+# --- Export button ---
+if st.button("✅ Confirm Choices and Export Files"):
+    if not selected_handles:
+        st.warning("Please select at least one product before exporting.")
+        st.stop()
 
-        selected_products.to_csv(prod_buffer, index=False)
-        selected_inventory.to_csv(inv_buffer, index=False)
+    # Filter selected products
+    selected_products = merged_df[merged_df['Handle'].isin(selected_handles)]
+    selected_inventory = inventory_df[inventory_df['Variant SKU'].isin(selected_products['Variant SKU'])]
 
-        st.download_button(
-            label="Download Selected Product File",
-            data=prod_buffer.getvalue(),
-            file_name=f"selected_products_{timestamp}.csv",
-            mime="text/csv"
-        )
+    # Output files
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    product_filename = f"selected_products_{timestamp}.csv"
+    inventory_filename = f"selected_inventory_{timestamp}.csv"
 
-        st.download_button(
-            label="Download Selected Inventory File",
-            data=inv_buffer.getvalue(),
-            file_name=f"selected_inventory_{timestamp}.csv",
-            mime="text/csv"
-        )
+    st.success("✅ Files generated successfully!")
+
+    st.download_button("⬇️ Download Product File", selected_products.to_csv(index=False), product_filename)
+    st.download_button("⬇️ Download Inventory File", selected_inventory.to_csv(index=False), inventory_filename)
