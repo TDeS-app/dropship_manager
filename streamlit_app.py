@@ -47,6 +47,7 @@ def preprocess_sku(df):
     df = df.copy()
     sku_col = 'Variant SKU' if 'Variant SKU' in df.columns else 'SKU' if 'SKU' in df.columns else None
     if not sku_col:
+        st.warning("⚠️ SKU column not found. Expected 'Variant SKU' or 'SKU'.")
         return pd.DataFrame()
     df['sku_num'] = df[sku_col].apply(extract_sku_number)
     return df[df['sku_num'].notna() & (df['sku_num'] != '')]
@@ -109,17 +110,18 @@ def display_product_tiles(merged_df, page_key, search_query=""):
     paginated_grouped = paginate_list(grouped, current_page)
 
     for handle, group in paginated_grouped:
+        handle_str = str(handle)  # Ensure hashable type
         with st.expander(f"{group['Title'].iloc[0]}"):
             col1, col2 = st.columns([1, 3])
             with col1:
                 sku_col = 'Variant SKU' if 'Variant SKU' in group.columns else 'SKU' if 'SKU' in group.columns else None
                 main_row = group[group[sku_col].notna()].iloc[0] if sku_col and not group[sku_col].notna().empty else group.iloc[0]
                 st.image(main_row['Image Src'], width=150, caption="Main Image")
-                checked = st.checkbox("Select", value=handle in st.session_state.selected_handles, key=handle)
+                checked = st.checkbox("Select", value=handle_str in st.session_state.selected_handles, key=handle_str)
                 if checked:
-                    st.session_state.selected_handles.add(handle)
+                    st.session_state.selected_handles.add(handle_str)
                 else:
-                    st.session_state.selected_handles.discard(handle)
+                    st.session_state.selected_handles.discard(handle_str)
             with col2:
                 qty_col = 'Available Quantity'
                 if qty_col not in group.columns:
