@@ -34,6 +34,8 @@ if 'product_page' not in st.session_state:
     st.session_state.product_page = 1
 if 'selected_page' not in st.session_state:
     st.session_state.selected_page = 1
+if 'last_search_query' not in st.session_state:
+    st.session_state.last_search_query = ""
 
 # --- Placeholder for future authentication logic ---
 # TODO: Integrate Streamlit Authenticator or external user auth
@@ -99,13 +101,13 @@ def display_pagination_controls(total, current_page, key_prefix):
             if st.button("⬅️ Prev", key=f"{key_prefix}_prev"):
                 st.session_state[f"{key_prefix}_page"] -= 1
     with col2:
-        st.selectbox(
+        new_page = st.selectbox(
             f"Page ({key_prefix})",
             options=list(range(1, total_pages + 1)),
             index=current_page - 1,
-            key=f"{key_prefix}_page_selector",
-            on_change=lambda: st.session_state.update({f"{key_prefix}_page": st.session_state[f"{key_prefix}_page_selector"]})
+            key=f"{key_prefix}_page_selector"
         )
+        st.session_state[f"{key_prefix}_page"] = new_page
     with col3:
         if current_page < total_pages:
             if st.button("➡️ Next", key=f"{key_prefix}_next"):
@@ -115,7 +117,11 @@ def display_product_tiles(merged_df, page_key, search_query=""):
     inventory_filter = st.sidebar.slider("📦 Filter by Inventory Quantity", 0, 500, (0, 500))
 
     grouped = list(merged_df.groupby("Handle"))
-    
+
+    if search_query != st.session_state.last_search_query:
+        st.session_state[f"{page_key}_page"] = 1
+        st.session_state.last_search_query = search_query
+
     if search_query:
         grouped = [
             (handle, group) for handle, group in grouped
