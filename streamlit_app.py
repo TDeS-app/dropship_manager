@@ -114,7 +114,8 @@ def display_pagination_controls(total, current_page, key_prefix):
                 st.session_state[f"{key_prefix}_page"] += 1
 
 def display_product_tiles(merged_df, page_key, search_query=""):
-    inventory_filter = st.sidebar.slider("📦 Filter by Inventory Quantity", 0, 500, (0, 500))
+    max_inventory = int(merged_df[[col for col in merged_df.columns if 'Available' in col][0]].fillna(0).max()) if not merged_df.empty else 500
+    inventory_filter = st.sidebar.slider("📦 Filter by Inventory Quantity", 0, max_inventory, (0, max_inventory), key=f"{page_key}_inventory_filter")
 
     grouped = list(merged_df.groupby("Handle"))
 
@@ -170,13 +171,15 @@ def display_product_tiles(merged_df, page_key, search_query=""):
 def output_selected_files(merged_df):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     selected_handles = st.session_state.selected_handles
-    selected_df = merged_df[merged_df['Handle'].isin(selected_handles)]
 
-    if st.session_state.full_product_df is not None:
-        extra_rows = st.session_state.full_product_df[
-            st.session_state.full_product_df['Handle'].isin(selected_handles)
-        ]
-        selected_df = pd.concat([selected_df, extra_rows])
+    # Include all full rows from original product_df (for variants & formatting)
+    selected_df = st.session_state.full_product_df[
+        st.session_state.full_product_df['Handle'].isin(selected_handles)
+    ].copy()
+
+    # Join in the matching inventory data
+    merged_subset = merged_df[merged_df['Handle'].isin(selected_handles)]
+    selected_df = pd.merge(selected_df, merged_subset.drop(columns=selected_df.columns.intersection(merged_subset.columns)), on='Handle', how='left')
 
     selected_df = selected_df.drop_duplicates()
     selected_df = selected_df.sort_values(by=selected_df.columns[0])
