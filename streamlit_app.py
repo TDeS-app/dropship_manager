@@ -39,8 +39,18 @@ def extract_sku_number(sku):
 
 def preprocess_sku(df):
     df = df.copy()
-    df['sku_num'] = df['Variant SKU'].apply(extract_sku_number)
-    return df[df['sku_num'].notna() & (df['sku_num'] != '')]
+    df['final_sku'] = df.get('Variant SKU', pd.NA)
+    if 'SKU' in df.columns:
+        df['final_sku'] = df['final_sku'].fillna(df['SKU'])
+        df['final_sku'] = df['final_sku'].replace('', pd.NA)
+        df['final_sku'] = df['final_sku'].fillna(df['SKU'])
+
+    if 'final_sku' in df.columns:
+        df['sku_num'] = df['final_sku'].apply(extract_sku_number)
+        return df[df['sku_num'].notna() & (df['sku_num'] != '')]
+    else:
+        df['sku_num'] = ''
+        return df
 
 def fuzzy_match_inventory(product_df, inventory_df):
     product_df = preprocess_sku(product_df)
@@ -103,13 +113,13 @@ def output_selected_files(merged_df):
     selected_handles = st.session_state.selected_handles
     selected_df = merged_df[merged_df['Handle'].isin(selected_handles)]
 
-    # Add extra rows from the full original product data
     if st.session_state.full_product_df is not None:
         extra_rows = st.session_state.full_product_df[
             st.session_state.full_product_df['Handle'].isin(selected_handles)
         ]
-        full_selected_df = fuzzy_match_inventory(extra_rows, pd.DataFrame([{}]))
-        selected_df = pd.concat([selected_df, full_selected_df]).drop_duplicates()
+        if not extra_rows.empty:
+            full_selected_df = fuzzy_match_inventory(extra_rows, pd.DataFrame())
+            selected_df = pd.concat([selected_df, full_selected_df]).drop_duplicates()
 
     product_columns = [col for col in selected_df.columns if col in st.session_state.original_product_columns]
     inventory_columns = [col for col in selected_df.columns if col in st.session_state.original_inventory_columns]
