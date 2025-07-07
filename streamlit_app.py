@@ -1,134 +1,178 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 import re
-from rapidfuzz import process, fuzz
+from io import BytesIO
+from datetime import datetime
+from rapidfuzz import fuzz
 
-st.set_page_config(page_title="Dropship Manager", layout="wide")
+st.set_page_config(layout="wide")
+
 st.title("🛒 Dropship Product & Inventory Manager")
 
-# --- Upload Section ---
-st.sidebar.header("📁 Upload Files")
+# Session state for selections
+if 'selected_handles' not in st.session_state:
+    st.session_state.selected_handles = set()
 
-product_files = st.sidebar.file_uploader(
-    "Upload Product CSV(s)", type="csv", accept_multiple_files=True
-)
-inventory_file = st.sidebar.file_uploader(
-    "Upload Inventory CSV", type="csv", accept_multiple_files=False
-)
+if 'product_df' not in st.session_state:
+    st.session_state.product_df = None
 
-if not product_files:
-    st.warning("Please upload at least one Product CSV to continue.")
-    st.stop()
+if 'last_output_df' not in st.session_state:
+    st.session_state.last_output_df = None
 
-if not inventory_file:
-    st.warning("Please upload the Inventory CSV to continue.")
-    st.stop()
 
-# --- Read Product Files ---
-product_dfs = []
-for file in product_files:
-    try:
-        df = pd.read_csv(file, encoding='utf-8-sig')
-        product_dfs.append(df)
-    except Exception as e:
-        st.warning(f"⚠️ Could not read {file.name}: {e}")
+# --- FUNCTIONS ---
 
-if not product_dfs:
-    st.error("❌ No valid product files could be read.")
-    st.stop()
+def read_csv_with_fallback(uploaded_file):
+    content = uploaded_file.read()
+    for enc in ['utf-8-sig', 'ISO-8859-1', 'windows-1252']:
+        try:
+            return pd.read_csv(BytesIO(content), encoding=enc)
+        except Exception:
+            continue
+    st.warning(f"⚠️ Could not read {uploaded_file.name} with common encodings.")
+    return None
 
-product_df = pd.concat(product_dfs, ignore_index=True)
 
-# --- Read Inventory File ---
-try:
-    inventory_df = pd.read_csv(inventory_file, encoding='utf-8-sig')
-except Exception as e:
-    st.error(f"❌ Could not read inventory file: {e}")
-    st.stop()
+def extract_sku_number(sku):
+    match = re.search(r'\d+', str(sku))
+    return match.group() if match else ''
 
-# --- Normalize Columns ---
-product_df.columns = product_df.columns.str.strip()
-inventory_df.columns = inventory_df.columns.str.strip()
 
-# --- Check Required Columns ---
-required_cols = ['Variant SKU', 'Handle', 'Title']
-for col in required_cols:
-    if col not in product_df.columns:
-        st.error(f"❌ Required column '{col}' not found in Product file.")
-        st.stop()
+def fuzzy_match_inventory(product_df, inventory_df):
+    product_df['sku_num'] = product_df['Variant SKU'].apply(extract_sku_number)
+    inventory_df['sku_num'] = inventory_df['Variant SKU'].apply(extract_sku_number)
 
-if 'Variant SKU' not in inventory_df.columns:
-    st.error("❌ 'Variant SKU' column not found in Inventory file.")
-    st.stop()
+    merged_rows = []
 
-# --- Extract SKU Numeric Key ---
-def extract_numeric(s):
-    match = re.search(r'\d+', str(s))
-    return match.group() if match else ""
+    for _, prod_row in product_df.iterrows():
+        best_match = None
+        best_score = 0
 
-product_df['SKU_NUM'] = product_df['Variant SKU'].apply(extract_numeric)
-inventory_df['SKU_NUM'] = inventory_df['Variant SKU'].apply(extract_numeric)
+        for _, inv_row in inventory_df.iterrows():
+            if prod_row['sku_num'] and prod_row['sku_num'] == inv_row['sku_num']:
+                title_score = fuzz.token_sort_ratio(str(prod_row['Title']), str(inv_row['Title']))
+                if title_score > 90:
+                    best_match = inv_row
+                    break
+                elif title_score > best_score:
+                    best_match = inv_row
+                    best_score = title_score
 
-# --- Merge on SKU_NUM ---
-merged_df = product_df.merge(inventory_df, on='SKU_NUM', how='left', suffixes=('', '_inv'))
+        if best_match is not None:
+            merged_row = pd.concat([prod_row, best_match.drop(labels=product_df.columns.intersection(inventory_df.columns))])
+        else:
+            merged_row = prod_row
+        merged_rows.append(merged_row)
 
-# --- Fuzzy Match Unmatched Rows ---
-unmatched = merged_df[merged_df['Available'].isna()]
-if not unmatched.empty:
-    inv_titles = inventory_df['Variant SKU'].tolist()
-    for idx, row in unmatched.iterrows():
-        title = str(row['Title'])
-        best_match, score, _ = process.extractOne(title, inv_titles, scorer=fuzz.token_set_ratio)
-        if score >= 90:
-            inv_row = inventory_df[inventory_df['Variant SKU'] == best_match]
-            for col in inv_row.columns:
-                merged_df.at[idx, col] = inv_row.iloc[0][col]
+    merged_df = pd.DataFrame(merged_rows)
+    return merged_df
 
-# --- Group by Product ---
-grouped = merged_df.groupby('Handle')
-selected_handles = set()
 
-st.subheader("🧾 Product Browser")
+def display_product_tiles(merged_df):
+    grouped = merged_df.groupby("Handle")
 
-for handle, group in grouped:
-    main_row = group[group['Variant SKU'] == handle]
-    if main_row.empty:
-        main_row = group.iloc[[0]]
+    for handle, group in grouped:
+        with st.container():
+            col1, col2 = st.columns([1, 3])
 
-    product_title = main_row['Title'].values[0]
-    image_url = main_row['Image Src'].values[0] if 'Image Src' in main_row else ""
+            with col1:
+                main_row = group[group['Variant SKU'].notna()].iloc[0] if not group[group['Variant SKU'].notna()].empty else group.iloc[0]
+                main_image = main_row['Image Src']
+                st.image(main_image, width=150, caption="Main Image")
+                checked = st.checkbox(f"Select: {main_row['Title']}", value=handle in st.session_state.selected_handles, key=handle)
+                if checked:
+                    st.session_state.selected_handles.add(handle)
+                else:
+                    st.session_state.selected_handles.discard(handle)
 
-    with st.expander(f"📦 {product_title}"):
-        cols = st.columns([1, 2])
-        with cols[0]:
-            if image_url:
-                st.image(image_url, width=150)
-            else:
-                st.text("No image available")
-        with cols[1]:
-            st.write(group[['Variant SKU', 'Option1 Value', 'Available']])
+            with col2:
+                st.markdown(f"**Product Title:** {main_row['Title']}")
+                images = group['Image Src'].dropna().unique().tolist()
+                with st.expander("🖼️ See all images", expanded=False):
+                    img_cols = st.columns(4)
+                    for i, img in enumerate(images):
+                        with img_cols[i % 4]:
+                            st.image(img, use_column_width=True)
 
-        selected = st.checkbox("Select this product", key=handle)
-        if selected:
-            selected_handles.add(handle)
+                # Inventory info
+                qty_col = 'Available Quantity'
+                if qty_col not in group.columns:
+                    alt_qty = [c for c in group.columns if 'Available' in c]
+                    qty_col = alt_qty[0] if alt_qty else None
+                if qty_col:
+                    total_qty = group[qty_col].fillna(0).sum()
+                    st.markdown(f"**Available:** {int(total_qty)}")
+                else:
+                    st.markdown("❓ *No inventory data found*")
 
-# --- Export Logic ---
-if st.button("✅ Confirm Choices and Export Files"):
-    if not selected_handles:
-        st.warning("Please select at least one product before exporting.")
-        st.stop()
 
-    # Filter selected products
-    selected_products = merged_df[merged_df['Handle'].isin(selected_handles)]
-    selected_inventory = inventory_df[inventory_df['Variant SKU'].isin(selected_products['Variant SKU'])]
-
-    # Timestamped filenames
+def output_selected_files(merged_df):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    product_filename = f"selected_products_{timestamp}.csv"
-    inventory_filename = f"selected_inventory_{timestamp}.csv"
+    selected_df = merged_df[merged_df['Handle'].isin(st.session_state.selected_handles)]
 
-    st.success("✅ Files generated successfully!")
+    # Split product and inventory back into two files
+    product_columns = [col for col in selected_df.columns if col in st.session_state.original_product_columns]
+    inventory_columns = [col for col in selected_df.columns if col in st.session_state.original_inventory_columns]
 
-    st.download_button("⬇️ Download Product File", selected_products.to_csv(index=False), product_filename)
-    st.download_button("⬇️ Download Inventory File", selected_inventory.to_csv(index=False), inventory_filename)
+    product_output = selected_df[product_columns]
+    inventory_output = selected_df[inventory_columns]
+
+    # Save to session for future incremental updates
+    st.session_state.last_output_df = selected_df.copy()
+    st.session_state.product_df = selected_df.copy()
+
+    # Download buttons
+    st.success("✅ Files ready for download!")
+
+    st.download_button(
+        label="📁 Download Product CSV",
+        data=product_output.to_csv(index=False).encode('utf-8'),
+        file_name=f"products_selected_{timestamp}.csv",
+        mime="text/csv"
+    )
+    st.download_button(
+        label="📦 Download Inventory CSV",
+        data=inventory_output.to_csv(index=False).encode('utf-8'),
+        file_name=f"inventory_selected_{timestamp}.csv",
+        mime="text/csv"
+    )
+
+
+# --- MAIN APP FLOW ---
+
+st.subheader("📤 Upload Product CSV(s)")
+product_files = st.file_uploader("Upload one or more product CSVs", accept_multiple_files=True, type=["csv"])
+
+st.subheader("📥 Upload Inventory CSV")
+inventory_file = st.file_uploader("Upload latest inventory CSV", type=["csv"])
+
+if product_files and inventory_file:
+    product_dfs = [read_csv_with_fallback(file) for file in product_files]
+    product_dfs = [df for df in product_dfs if df is not None]
+    inventory_df = read_csv_with_fallback(inventory_file)
+
+    if product_dfs and inventory_df is not None:
+        product_df = pd.concat(product_dfs, ignore_index=True)
+        st.session_state.original_product_columns = product_df.columns.tolist()
+        st.session_state.original_inventory_columns = inventory_df.columns.tolist()
+
+        merged_df = fuzzy_match_inventory(product_df, inventory_df)
+
+        st.markdown("---")
+        st.subheader("🖼️ Browse Products")
+        display_product_tiles(merged_df)
+
+        st.markdown("---")
+        if st.button("✅ Confirm Choices"):
+            st.success("📝 Confirmed! Generating download files...")
+            output_selected_files(merged_df)
+
+elif inventory_file and st.session_state.product_df is not None:
+    inventory_df = read_csv_with_fallback(inventory_file)
+    if inventory_df is not None:
+        merged_df = fuzzy_match_inventory(st.session_state.product_df, inventory_df)
+        st.subheader("🆕 Inventory Updated")
+        output_selected_files(merged_df)
+
+else:
+    st.info("👆 Please upload your product and inventory files to begin.")
