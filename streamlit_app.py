@@ -74,7 +74,7 @@ inventory_df['SKU_NUM'] = inventory_df['Variant SKU'].apply(extract_numeric)
 merged_df = product_df.merge(inventory_df, on='SKU_NUM', how='left', suffixes=('', '_inv'))
 
 # --- Fuzzy Match Unmatched Rows ---
-unmatched = merged_df[merged_df['Available Quantity'].isna()]
+unmatched = merged_df[merged_df['Available'].isna()]
 if not unmatched.empty:
     inv_titles = inventory_df['Variant SKU'].tolist()
     for idx, row in unmatched.iterrows():
@@ -107,7 +107,7 @@ for handle, group in grouped:
             else:
                 st.text("No image available")
         with cols[1]:
-            st.write(group[['Variant SKU', 'Option1 Value', 'Available Quantity']])
+            st.write(group[['Variant SKU', 'Option1 Value', 'Available']])
 
         selected = st.checkbox("Select this product", key=handle)
         if selected:
