@@ -37,6 +37,8 @@ if 'selected_page' not in st.session_state:
     st.session_state.selected_page = 1
 if 'search_query' not in st.session_state:
     st.session_state.search_query = ""
+if 'inventory_df' not in st.session_state:
+    st.session_state.inventory_df = None
 
 # --- Helper Functions ---
 def save_selected_handles():
@@ -158,6 +160,7 @@ if product_files:
     st.session_state.full_product_df = pd.concat(dfs, ignore_index=True)
 if product_files and inventory_file:
     inventory_df = read_csv_with_fallback(inventory_file)
+    st.session_state.inventory_df = inventory_df
     merged_df = fuzzy_match_inventory(st.session_state.full_product_df, inventory_df)
     st.session_state.merged_df_cache = merged_df
 
@@ -176,3 +179,22 @@ if st.session_state.full_product_df is not None:
     if not selected_preview.empty:
         st.markdown("## ✅ Selected Products")
         display_product_tiles(selected_preview, page_key="selected")
+
+        # --- CSV Download Buttons ---
+        st.markdown("### 📦 Download Selected Data")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            product_output = st.session_state.full_product_df[st.session_state.full_product_df['Handle'].isin(st.session_state.selected_handles)]
+            product_output = product_output.drop_duplicates().sort_values(by="Handle")
+            csv = product_output.to_csv(index=False).encode('utf-8')
+            st.download_button("⬇️ Download Product CSV", csv, "selected_products.csv", "text/csv")
+
+        with col2:
+            if st.session_state.inventory_df is not None:
+                selected_skus = product_output['Variant SKU'].dropna().apply(extract_sku_number).unique()
+                inv_df = preprocess_sku(st.session_state.inventory_df)
+                matched_inventory = inv_df[inv_df['sku_num'].isin(selected_skus)]
+                csv_inv = matched_inventory.drop(columns=['sku_num'], errors='ignore').to_csv(index=False).encode('utf-8')
+                st.download_button("⬇️ Download Inventory CSV", csv_inv, "selected_inventory.csv", "text/csv")
+                
