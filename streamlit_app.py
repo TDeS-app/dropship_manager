@@ -89,4 +89,28 @@ def fuzzy_match_inventory(product_df, inventory_df):
 
     return pd.DataFrame(merged_rows)
 
-# ... (rest of the code remains unchanged)
+# Show file uploaders regardless of merged state
+st.sidebar.header("Upload Files")
+product_files = st.sidebar.file_uploader("Upload Product File(s)", type="csv", accept_multiple_files=True)
+inventory_file = st.sidebar.file_uploader("Upload Inventory File", type="csv")
+
+# Preprocess uploaded files and cache merged result
+if product_files:
+    dfs = [read_csv_with_fallback(f) for f in product_files]
+    st.session_state.full_product_df = pd.concat(dfs, ignore_index=True)
+if product_files and inventory_file:
+    inventory_df = read_csv_with_fallback(inventory_file)
+    merged_df = fuzzy_match_inventory(st.session_state.full_product_df, inventory_df)
+    st.session_state.merged_df_cache = merged_df
+
+# If merged_df_cache is ready, proceed to display UI
+if st.session_state.merged_df_cache is not None:
+    merged = st.session_state.merged_df_cache
+    if not merged.empty:
+        # This function would render the tiles/cards, pagination, selection, etc.
+        from display import display_product_tiles
+        display_product_tiles(merged, page_key="product")
+    else:
+        st.info("🔍 No matching products with inventory available.")
+else:
+    st.info("📤 Please upload product and inventory files to begin.")
