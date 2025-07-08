@@ -35,8 +35,8 @@ if 'product_page' not in st.session_state:
     st.session_state.product_page = 1
 if 'selected_page' not in st.session_state:
     st.session_state.selected_page = 1
-if 'last_search_query' not in st.session_state:
-    st.session_state.last_search_query = ""
+if 'search_query' not in st.session_state:
+    st.session_state.search_query = ""
 
 # --- Helper Functions ---
 def save_selected_handles():
@@ -92,6 +92,8 @@ def paginate_list(grouped, page):
 
 def display_pagination_controls(total, current_page, key_prefix):
     total_pages = (total + PRODUCTS_PER_PAGE - 1) // PRODUCTS_PER_PAGE
+    if current_page > total_pages:
+        current_page = total_pages
     col1, col2, col3 = st.columns([1, 2, 1])
 
     if current_page > 1 and col1.button("⬅️ Prev", key=f"{key_prefix}_prev"):
@@ -117,39 +119,33 @@ def is_valid_url(url):
     except Exception:
         return False
 
-def display_product_tiles(merged_df, page_key, search_query=""):
+def display_product_tiles(merged_df, page_key):
     if f"{page_key}_page" not in st.session_state:
         st.session_state[f"{page_key}_page"] = 1
 
+    search_query = st.session_state.search_query
     max_inventory = int(merged_df[[col for col in merged_df.columns if 'Available' in col][0]].fillna(0).max()) if not merged_df.empty else 500
     inventory_filter = st.sidebar.slider("📦 Filter by Inventory Quantity", 0, max_inventory, (0, max_inventory), key=f"{page_key}_inventory_filter_slider")
 
-    grouped = list(merged_df.groupby("Handle"))
-
-    if search_query != st.session_state.last_search_query:
-        st.session_state[f"{page_key}_page"] = 1
-        st.session_state.last_search_query = search_query
-
+    filtered_df = merged_df.copy()
     if search_query:
-        grouped = [
-            (handle, group) for handle, group in grouped
-            if search_query.lower() in str(group['Title'].iloc[0]).lower()
-            or search_query.lower() in handle.lower()
-            or any(search_query.lower() in str(sku).lower() for sku in group.get('Variant SKU', group.get('SKU', [])))
+        sku_col = 'Variant SKU' if 'Variant SKU' in merged_df.columns else 'SKU'
+        filtered_df = merged_df[
+            merged_df['Title'].str.contains(search_query, case=False, na=False)
+            | merged_df['Handle'].str.contains(search_query, case=False, na=False)
+            | merged_df[sku_col].astype(str).str.contains(search_query, case=False, na=False)
         ]
 
-    filtered_grouped = []
-    for handle, group in grouped:
-        qty_col = 'Available Quantity'
-        if qty_col not in group.columns:
-            alt_qty = [c for c in group.columns if 'Available' in c]
-            qty_col = alt_qty[0] if alt_qty else None
-        if qty_col:
-            total_qty = group[qty_col].fillna(0).sum()
-            if inventory_filter[0] <= total_qty <= inventory_filter[1]:
-                filtered_grouped.append((handle, group))
-    grouped = filtered_grouped
+    qty_col = 'Available Quantity'
+    if qty_col not in filtered_df.columns:
+        alt_qty = [c for c in filtered_df.columns if 'Available' in c]
+        qty_col = alt_qty[0] if alt_qty else None
+    if qty_col:
+        total_qty = filtered_df.groupby('Handle')[qty_col].sum()
+        valid_handles = total_qty[(total_qty >= inventory_filter[0]) & (total_qty <= inventory_filter[1])].index
+        filtered_df = filtered_df[filtered_df['Handle'].isin(valid_handles)]
 
+    grouped = list(filtered_df.groupby("Handle"))
     total = len(grouped)
     current_page = st.session_state[f"{page_key}_page"]
     paginated_grouped = paginate_list(grouped, current_page)
@@ -247,8 +243,8 @@ if inventory_file and st.session_state.full_product_df is not None:
 if st.session_state.merged_df_cache is not None:
     st.markdown("---")
     st.subheader("🖼️ Browse Products (Updated)")
-    search_query = st.text_input("🔍 Search Products (After Inventory Update)")
-    display_product_tiles(st.session_state.merged_df_cache, page_key="product", search_query=search_query)
+    st.text_input("🔍 Search Products (After Inventory Update)", key="search_query")
+    display_product_tiles(st.session_state.merged_df_cache, page_key="product")
 
     st.markdown("---")
     st.subheader("🔎 Selected Products Preview")
@@ -267,8 +263,8 @@ if st.session_state.merged_df_cache is not None:
 elif st.session_state.full_product_df is not None:
     st.markdown("---")
     st.subheader("🖼️ Browse Products")
-    search_query = st.text_input("🔍 Search Products")
-    display_product_tiles(st.session_state.full_product_df, page_key="product", search_query=search_query)
+    st.text_input("🔍 Search Products", key="search_query")
+    display_product_tiles(st.session_state.full_product_df, page_key="product")
 
     st.markdown("---")
     st.subheader("🔎 Selected Products Preview")
@@ -283,4 +279,3 @@ elif st.session_state.full_product_df is not None:
             save_selected_handles()
     else:
         st.info("ℹ️ No products selected yet.")
-
