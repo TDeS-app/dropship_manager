@@ -37,8 +37,6 @@ if 'selected_page' not in st.session_state:
     st.session_state.selected_page = 1
 if 'search_query' not in st.session_state:
     st.session_state.search_query = ""
-if 'inventory_df' not in st.session_state:
-    st.session_state.inventory_df = None
 
 # --- Helper Functions ---
 def save_selected_handles():
@@ -145,7 +143,7 @@ def display_product_tiles(merged_df, page_key="product", search_query=""):
 st.sidebar.header("Upload Files")
 product_files = st.sidebar.file_uploader("Upload Product File(s)", type="csv", accept_multiple_files=True)
 inventory_file = st.sidebar.file_uploader("Upload Inventory File", type="csv")
-search_query = st.sidebar.text_input("🔍 Search Products", value=st.session_state.search_query)
+search_query = st.sidebar.text_input("🔍 Search Products", value=st.session_state.search_query, key="search_box")
 if search_query != st.session_state.search_query:
     st.session_state.search_query = search_query
     st.session_state.product_page = 1
@@ -160,7 +158,6 @@ if product_files:
     st.session_state.full_product_df = pd.concat(dfs, ignore_index=True)
 if product_files and inventory_file:
     inventory_df = read_csv_with_fallback(inventory_file)
-    st.session_state.inventory_df = inventory_df
     merged_df = fuzzy_match_inventory(st.session_state.full_product_df, inventory_df)
     st.session_state.merged_df_cache = merged_df
 
@@ -180,21 +177,16 @@ if st.session_state.full_product_df is not None:
         st.markdown("## ✅ Selected Products")
         display_product_tiles(selected_preview, page_key="selected")
 
-        # --- CSV Download Buttons ---
-        st.markdown("### 📦 Download Selected Data")
-        col1, col2 = st.columns(2)
+        # Output product file
+        output_product_df = st.session_state.full_product_df[st.session_state.full_product_df['Handle'].isin(st.session_state.selected_handles)]
+        output_product_df = output_product_df.drop_duplicates().sort_values(by="Handle")
+        csv_product = output_product_df.to_csv(index=False).encode("utf-8")
+        st.download_button("📦 Download Selected Product CSV", data=csv_product, file_name="selected_products.csv", mime="text/csv")
 
-        with col1:
-            product_output = st.session_state.full_product_df[st.session_state.full_product_df['Handle'].isin(st.session_state.selected_handles)]
-            product_output = product_output.drop_duplicates().sort_values(by="Handle")
-            csv = product_output.to_csv(index=False).encode('utf-8')
-            st.download_button("⬇️ Download Product CSV", csv, "selected_products.csv", "text/csv")
-
-        with col2:
-            if st.session_state.inventory_df is not None:
-                selected_skus = product_output['Variant SKU'].dropna().apply(extract_sku_number).unique()
-                inv_df = preprocess_sku(st.session_state.inventory_df)
-                matched_inventory = inv_df[inv_df['sku_num'].isin(selected_skus)]
-                csv_inv = matched_inventory.drop(columns=['sku_num'], errors='ignore').to_csv(index=False).encode('utf-8')
-                st.download_button("⬇️ Download Inventory CSV", csv_inv, "selected_inventory.csv", "text/csv")
-                
+        # Output inventory file
+        if inventory_file:
+            inventory_df = preprocess_sku(read_csv_with_fallback(inventory_file))
+            selected_skus = selected_preview['Variant SKU'].dropna().apply(extract_sku_number).unique()
+            matched_inventory = inventory_df[inventory_df['sku_num'].isin(selected_skus)]
+            csv_inventory = matched_inventory.to_csv(index=False).encode("utf-8")
+            st.download_button("📦 Download Matching Inventory CSV", data=csv_inventory, file_name="matching_inventory.csv", mime="text/csv")
