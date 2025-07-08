@@ -89,6 +89,57 @@ def fuzzy_match_inventory(product_df, inventory_df):
 
     return pd.DataFrame(merged_rows)
 
+# --- Display Logic (formerly in display.py) ---
+def display_product_tiles(merged_df, page_key="product", search_query=""):
+    current_page = st.session_state.get(f"{page_key}_page", 1)
+    grouped = merged_df.groupby("Handle")
+    filtered_grouped = []
+
+    if search_query:
+        for handle, group in grouped:
+            row_text = " ".join(group.astype(str).fillna("").values.flatten())
+            if fuzz.partial_ratio(search_query.lower(), row_text.lower()) > 50:
+                filtered_grouped.append((handle, group))
+    else:
+        filtered_grouped = list(grouped)
+
+    total = len(filtered_grouped)
+    start = (current_page - 1) * PRODUCTS_PER_PAGE
+    end = start + PRODUCTS_PER_PAGE
+    paginated_grouped = filtered_grouped[start:end]
+
+    for handle, group in paginated_grouped:
+        with st.container():
+            cols = st.columns([0.1, 1])
+            with cols[0]:
+                checked = handle in st.session_state.selected_handles
+                if st.checkbox("", value=checked, key=f"{page_key}_cb_{handle}"):
+                    st.session_state.selected_handles.add(handle)
+                else:
+                    st.session_state.selected_handles.discard(handle)
+            with cols[1]:
+                images = []
+                if 'Image Src' in group.columns:
+                    images = group['Image Src'].dropna().unique().tolist()
+                if images:
+                    st.image(images, width=100)
+                st.markdown(f"### {handle}")
+                st.dataframe(group, use_container_width=True)
+
+    # Pagination Controls
+    total_pages = max(1, (total + PRODUCTS_PER_PAGE - 1) // PRODUCTS_PER_PAGE)
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col1:
+        if current_page > 1:
+            if st.button("⬅️ Previous", key=f"{page_key}_prev"):
+                st.session_state[f"{page_key}_page"] -= 1
+    with col2:
+        if current_page < total_pages:
+            if st.button("Next ➡️", key=f"{page_key}_next"):
+                st.session_state[f"{page_key}_page"] += 1
+    with col3:
+        st.markdown(f"**Page {current_page} of {total_pages}**")
+
 # Show file uploaders regardless of merged state
 st.sidebar.header("Upload Files")
 product_files = st.sidebar.file_uploader("Upload Product File(s)", type="csv", accept_multiple_files=True)
@@ -107,10 +158,9 @@ if product_files and inventory_file:
 if st.session_state.merged_df_cache is not None:
     merged = st.session_state.merged_df_cache
     if not merged.empty:
-        # This function would render the tiles/cards, pagination, selection, etc.
-        from display import display_product_tiles
         display_product_tiles(merged, page_key="product")
     else:
         st.info("🔍 No matching products with inventory available.")
 else:
     st.info("📤 Please upload product and inventory files to begin.")
+
