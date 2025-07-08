@@ -58,6 +58,8 @@ def extract_sku_number(sku):
     return match.group() if match else ''
 
 def preprocess_sku(df):
+    if df is None:
+        return pd.DataFrame()  # Safely return empty DataFrame if file couldn't be read
     df = df.copy()
     sku_col = 'Variant SKU' if 'Variant SKU' in df.columns else 'SKU' if 'SKU' in df.columns else None
     if not sku_col:
