@@ -94,6 +94,7 @@ def display_pagination_controls(total, current_page, key_prefix):
     total_pages = (total + PRODUCTS_PER_PAGE - 1) // PRODUCTS_PER_PAGE
     if current_page > total_pages:
         current_page = total_pages
+        st.session_state[f"{key_prefix}_page"] = current_page
     col1, col2, col3 = st.columns([1, 2, 1])
 
     if current_page > 1 and col1.button("⬅️ Prev", key=f"{key_prefix}_prev"):
@@ -148,6 +149,10 @@ def display_product_tiles(merged_df, page_key):
     grouped = list(filtered_df.groupby("Handle"))
     total = len(grouped)
     current_page = st.session_state[f"{page_key}_page"]
+    total_pages = (total + PRODUCTS_PER_PAGE - 1) // PRODUCTS_PER_PAGE
+    if current_page > total_pages:
+        current_page = 1
+        st.session_state[f"{page_key}_page"] = 1
     paginated_grouped = paginate_list(grouped, current_page)
 
     for handle, group in paginated_grouped:
