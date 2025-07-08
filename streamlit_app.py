@@ -70,7 +70,6 @@ def fuzzy_match_inventory(product_df, inventory_df):
     product_df = preprocess_sku(product_df)
     inventory_df = preprocess_sku(inventory_df)
 
-    # Filter inventory for available/on hand > 0
     qty_cols = [c for c in inventory_df.columns if 'Available' in c or 'On hand' in c]
     if qty_cols:
         inventory_df['total_available'] = inventory_df[qty_cols].fillna(0).sum(axis=1)
@@ -89,7 +88,6 @@ def fuzzy_match_inventory(product_df, inventory_df):
 
     return pd.DataFrame(merged_rows)
 
-# --- Display Logic (formerly in display.py) ---
 def display_product_tiles(merged_df, page_key="product", search_query=""):
     current_page = st.session_state.get(f"{page_key}_page", 1)
     grouped = merged_df.groupby("Handle")
@@ -110,7 +108,7 @@ def display_product_tiles(merged_df, page_key="product", search_query=""):
 
     for handle, group in paginated_grouped:
         with st.container():
-            cols = st.columns([0.1, 1])
+            cols = st.columns([0.1, 1.9])
             with cols[0]:
                 checked = handle in st.session_state.selected_handles
                 if st.checkbox("", value=checked, key=f"{page_key}_cb_{handle}"):
@@ -118,15 +116,16 @@ def display_product_tiles(merged_df, page_key="product", search_query=""):
                 else:
                     st.session_state.selected_handles.discard(handle)
             with cols[1]:
-                images = []
-                if 'Image Src' in group.columns:
-                    images = group['Image Src'].dropna().unique().tolist()
-                if images:
-                    st.image(images, width=100)
-                st.markdown(f"### {handle}")
-                st.dataframe(group, use_container_width=True)
+                name = group['Title'].iloc[0] if 'Title' in group.columns else handle
+                available_col = [c for c in group.columns if 'Available' in c or 'On hand' in c]
+                available = group[available_col[0]].iloc[0] if available_col else 'N/A'
+                st.markdown(f"**{name}** - Available: {available}")
+                with st.expander("Details"):
+                    images = group['Image Src'].dropna().unique().tolist() if 'Image Src' in group.columns else []
+                    if images:
+                        st.image(images, width=100)
+                    st.dataframe(group, use_container_width=True)
 
-    # Pagination Controls
     total_pages = max(1, (total + PRODUCTS_PER_PAGE - 1) // PRODUCTS_PER_PAGE)
     col1, col2, col3 = st.columns([1, 1, 2])
     with col1:
@@ -140,10 +139,18 @@ def display_product_tiles(merged_df, page_key="product", search_query=""):
     with col3:
         st.markdown(f"**Page {current_page} of {total_pages}**")
 
-# Show file uploaders regardless of merged state
+# Sidebar: Upload files and search
 st.sidebar.header("Upload Files")
 product_files = st.sidebar.file_uploader("Upload Product File(s)", type="csv", accept_multiple_files=True)
 inventory_file = st.sidebar.file_uploader("Upload Inventory File", type="csv")
+search_query = st.sidebar.text_input("🔍 Search Products", value=st.session_state.search_query)
+if search_query != st.session_state.search_query:
+    st.session_state.search_query = search_query
+    st.session_state.product_page = 1
+
+if st.sidebar.button("Clear Selection"):
+    st.session_state.selected_handles.clear()
+    save_selected_handles()
 
 # Preprocess uploaded files and cache merged result
 if product_files:
@@ -154,13 +161,11 @@ if product_files and inventory_file:
     merged_df = fuzzy_match_inventory(st.session_state.full_product_df, inventory_df)
     st.session_state.merged_df_cache = merged_df
 
-# If merged_df_cache is ready, proceed to display UI
 if st.session_state.merged_df_cache is not None:
     merged = st.session_state.merged_df_cache
     if not merged.empty:
-        display_product_tiles(merged, page_key="product")
+        display_product_tiles(merged, page_key="product", search_query=st.session_state.search_query)
     else:
         st.info("🔍 No matching products with inventory available.")
 else:
     st.info("📤 Please upload product and inventory files to begin.")
-
