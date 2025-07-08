@@ -169,3 +169,10 @@ if st.session_state.merged_df_cache is not None:
         st.info("🔍 No matching products with inventory available.")
 else:
     st.info("📤 Please upload product and inventory files to begin.")
+
+# --- Selected Products Preview Section ---
+if st.session_state.full_product_df is not None:
+    selected_preview = st.session_state.full_product_df[st.session_state.full_product_df['Handle'].isin(st.session_state.selected_handles)]
+    if not selected_preview.empty:
+        st.markdown("## ✅ Selected Products")
+        display_product_tiles(selected_preview, page_key="selected")
